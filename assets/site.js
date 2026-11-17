@@ -3,6 +3,30 @@
   const $$ = (s, r = document) => [...r.querySelectorAll(s)];
   const root = document.documentElement;
   const editing = document.body.classList.contains('editing');
+  // Keep keyboard navigation in an open dialog and return to its opener when it closes.
+  const dialogFocus = (dialog) => {
+    const opener = document.activeElement;
+    dialog.addEventListener('keydown', (e) => {
+      if (e.key !== 'Tab') return;
+      const items = $$('a[href], button, input, iframe, [tabindex="0"]', dialog).filter(el => !el.disabled && el.getClientRects().length);
+      const first = items[0], last = items.at(-1);
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last?.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first?.focus(); }
+    });
+    return () => { if (opener?.isConnected) opener.focus({ preventScroll: true }); };
+  };
+  if (!editing) $$('[data-video-embed]').forEach(link => link.addEventListener('click', event => {
+    if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey || event.button !== 0) return;
+    event.preventDefault();
+    const frame = document.createElement('iframe');
+    frame.src = `${link.dataset.videoEmbed}?autoplay=1&rel=0`;
+    frame.title = link.getAttribute('aria-label');
+    frame.allow = 'autoplay; fullscreen; picture-in-picture; encrypted-media';
+    frame.allowFullscreen = true;
+    frame.referrerPolicy = 'strict-origin-when-cross-origin';
+    link.replaceWith(frame);
+    frame.focus();
+  }));
   const store = {
     get: (k) => { try { return localStorage.getItem(k); } catch { return null; } },
     set: (k, v) => { try { localStorage.setItem(k, v); } catch { /* private mode */ } },
@@ -41,6 +65,8 @@
     const set = (v) => {
       pct = Math.min(MAX, Math.max(MIN, v));
       hero.style.setProperty('--hero-split', `${pct}%`);
+      const image = $('.hero-media img[srcset]', hero);
+      if (image) image.sizes = `(max-width: 980px) 100vw, ${100 - pct}vw`;
       hero.classList.toggle('collapsed', pct < 22); // too narrow for the text: it fades out instead of breaking
       grip.setAttribute('aria-valuenow', Math.round(pct));
     };
@@ -96,6 +122,12 @@
     root.classList.toggle('menu-open', open); // the page behind the open menu does not scroll
     if (!open) setMega(false);
   });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && hdr?.classList.contains('open')) {
+      hdr.classList.remove('open'); root.classList.remove('menu-open');
+      burger?.setAttribute('aria-expanded', 'false'); burger?.focus();
+    }
+  });
   // phone menu: a chevron button next to every item that has a sub-menu folds / unfolds it (the link itself still opens its page)
   $$('.nav li.has-sub').forEach((li) => {
     const a = $(':scope > a', li);
@@ -124,7 +156,7 @@
   }
 
   // ---- search (index is a static JSON built at publish time) ----
-  let index = null, ov = null, sel = 0, hits = [];
+  let index = null, ov = null, sel = 0, hits = [], searchReturnFocus = null;
   // the index is fetched once and normalised once (not on every keystroke)
   const loadIndex = () => (index ||= fetch('/assets/search.json').then((r) => { if (!r.ok) throw 0; return r.json(); })
     .then((docs) => { for (const d of docs) { d._t = norm(d.t); d._b = norm(d.b || d.x); } return docs; })
@@ -139,6 +171,7 @@
   };
   let timer = 0;
   async function run(q) {
+    if (!ov) return;
     const words = norm(q).split(/\s+/).filter(Boolean);
     const box = $('.search-res', ov);
     if (!words.length) { box.innerHTML = ''; hits = []; return; }
@@ -169,13 +202,15 @@
     sel = 0;
     box.innerHTML = out || '<li class="search-hint">Нічого не знайдено</li>';
   }
-  function closeSearch() { ov?.remove(); ov = null; document.body.style.overflow = ''; }
+  function closeSearch() { clearTimeout(timer); if (!ov) return; ov.remove(); ov = null; document.body.style.overflow = ''; searchReturnFocus?.(); searchReturnFocus = null; }
   function openSearch() {
-    if (ov) return;
+    if (ov || $('.lightbox, .vmodal')) return;
     ov = document.createElement('div');
     ov.className = 'search-ov';
-    ov.innerHTML = '<div class="search-box" role="dialog" aria-modal="true" aria-label="Пошук"><input type="search" placeholder="Пошук по сайту…" aria-label="Пошук"><ul class="search-res"></ul></div>';
+    ov.innerHTML = '<div class="search-box" role="dialog" aria-modal="true" aria-label="Пошук"><div class="search-head"><input type="search" placeholder="Пошук по сайту…" aria-label="Пошук"><button type="button" class="search-close" aria-label="Закрити пошук">×</button></div><ul class="search-res" aria-live="polite"></ul></div>';
     document.body.append(ov); document.body.style.overflow = 'hidden';
+    searchReturnFocus = dialogFocus(ov);
+    $('.search-close', ov).addEventListener('click', closeSearch);
     const input = $('input', ov);
     input.focus(); loadIndex();
     input.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(() => run(input.value.trim()), 90); });
@@ -200,31 +235,56 @@
 
   // ---- lightbox for content images ----
   if (editing) return;
-  let box, group = [], idx = 0;
+  let box, group = [], idx = 0, imageReturnFocus = null;
   const show = () => {
+    group = group.filter(im => im.isConnected);
+    if (!group.length) { close(); return; }
+    idx = Math.min(idx, group.length - 1);
     const im = group[idx];
-    $('img', box).src = im.currentSrc || im.src;
+    $('img', box).src = im.closest('figure[data-src]')?.dataset.src || im.currentSrc || im.src;
     $('img', box).alt = im.alt;
     $('.lb-count', box).textContent = group.length > 1 ? `${idx + 1} / ${group.length}` : '';
     box.classList.toggle('single', group.length < 2);
   };
-  const close = () => { box?.remove(); box = null; document.body.style.overflow = ''; };
+  const close = () => { if (!box) return; box.remove(); box = null; document.body.style.overflow = ''; imageReturnFocus?.(); imageReturnFocus = null; };
   const step = (d) => { idx = (idx + d + group.length) % group.length; show(); };
   function open(im) {
     group = $$('img', im.closest('.b-gallery, .prose'));
     idx = Math.max(0, group.indexOf(im));
     box = document.createElement('div');
     box.className = 'lightbox';
-    box.setAttribute('role', 'dialog'); box.setAttribute('aria-modal', 'true');
+    box.setAttribute('role', 'dialog'); box.setAttribute('aria-modal', 'true'); box.setAttribute('aria-label', 'Перегляд фото');
     box.innerHTML = '<button class="lb-close" aria-label="Закрити">×</button><button class="lb-nav lb-prev" aria-label="Попереднє">‹</button><img alt=""><button class="lb-nav lb-next" aria-label="Наступне">›</button><span class="lb-count"></span>';
+    $('img', box).addEventListener('error', () => unavailable(group[idx]));
     box.addEventListener('click', (e) => {
       if (e.target.closest('.lb-prev')) step(-1);
       else if (e.target.closest('.lb-next')) step(1);
       else if (e.target.tagName !== 'IMG') close();
     });
+    im.focus({ preventScroll: true });
     document.body.append(box); document.body.style.overflow = 'hidden';
+    imageReturnFocus = dialogFocus(box);
     show(); $('.lb-close', box).focus();
   }
+  function unavailable(im) {
+    if (!im?.isConnected) return;
+    const gallery = im.closest('.b-gallery');
+    const note = document.createElement('span');
+    note.className = 'image-unavailable'; note.textContent = 'Фото недоступне'; note.setAttribute('role', 'status');
+    if (gallery) {
+      (im.closest('figure') || im).remove();
+      if (!$(':scope > .image-unavailable', gallery)) gallery.append(note);
+    } else im.replaceWith(note);
+    if (box && group[idx] === im) close();
+  }
+  $$('.b-gallery img, .prose img').forEach((im, i) => {
+    im.addEventListener('error', () => unavailable(im));
+    if (im.complete && !im.naturalWidth) { unavailable(im); return; }
+    if (im.closest('a')) return;
+    im.tabIndex = 0; im.setAttribute('role', 'button'); im.setAttribute('aria-haspopup', 'dialog');
+    im.setAttribute('aria-label', `Відкрити фото: ${im.alt || i + 1}`);
+    im.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(im); } });
+  });
   document.addEventListener('click', (e) => {
     const im = e.target.closest('.b-gallery img, .prose img');
     if (im && !im.closest('a')) open(im);
@@ -250,13 +310,12 @@
       im.addEventListener('error', bad);
       if (im.complete && !im.naturalWidth) bad();
     });
-    let dlg, opener;
-    const closeVideo = () => { dlg?.remove(); dlg = null; document.body.style.overflow = ''; opener?.focus(); };
+    let dlg, videoReturnFocus;
+    const closeVideo = () => { if (!dlg) return; dlg.remove(); dlg = null; document.body.style.overflow = ''; videoReturnFocus?.(); };
     vg.addEventListener('click', (e) => {
       const a = e.target.closest('a.vcard[data-embed]');
       if (!a || e.ctrlKey || e.metaKey || e.shiftKey || e.button) return;
       e.preventDefault();
-      opener = a;
       const title = $('.v-title', a).textContent;
       dlg = document.createElement('div');
       dlg.className = 'vmodal';
@@ -268,6 +327,7 @@
       const ext = $('.vm-foot a', dlg); ext.href = a.href; ext.textContent = a.dataset.kind === 'youtube' ? 'Дивитися на YouTube ↗' : 'Відкрити на Google Диску ↗';
       dlg.addEventListener('click', (ev) => { if (ev.target === dlg || ev.target.closest('.vm-close')) closeVideo(); });
       document.body.append(dlg); document.body.style.overflow = 'hidden';
+      videoReturnFocus = dialogFocus(dlg);
       $('.vm-close', dlg).focus();
     });
     document.addEventListener('keydown', (e) => { if (dlg && e.key === 'Escape') closeVideo(); });
