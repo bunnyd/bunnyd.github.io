@@ -2,4 +2,4 @@ User-agent: *
 Allow: /
 Disallow: /404.html
 
-Sitemap: https://bunnyd.github.io/sitemap.xml
+Sitemap: https://bpc.od.ua/sitemap.xml
