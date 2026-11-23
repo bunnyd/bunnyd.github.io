@@ -11,6 +11,12 @@
     n.append(...kids.flat(Infinity).filter((x) => x != null && x !== false));
     return n;
   };
+  const icon = (...paths) => {
+    const NS = 'http://www.w3.org/2000/svg', s = document.createElementNS(NS, 'svg');
+    s.setAttribute('viewBox', '0 0 24 24'); s.setAttribute('aria-hidden', 'true');
+    for (const d of paths) { const p = document.createElementNS(NS, 'path'); p.setAttribute('d', d); s.append(p); }
+    return s;
+  };
   const safe = (href) => (/^\/(?!\/)/.test(href) || /^https?:\/\//i.test(href) ? href : '#');
   const load = () => { try { const m = JSON.parse(sessionStorage.getItem(KEY) || '[]'); return Array.isArray(m) ? m : []; } catch { return []; } };
   const save = (m) => { try { sessionStorage.setItem(KEY, JSON.stringify(m.slice(-24))); } catch { /* private window */ } };
@@ -23,22 +29,49 @@
   }
 
   function mount() {
-    let messages = load(), busy = false, open = false, showEx = false;
+    let messages = load(), busy = false, open = false, showEx = false, pushed = false;
+    // a phone shows the chat full screen (help.css): there the Back button closes it, and a finger tap does not pop the keyboard up over the examples
+    const phone = matchMedia('(max-width: 640px)'), touch = matchMedia('(pointer: coarse)'), vv = window.visualViewport;
     const list = el('div', { class: 'hc-list', role: 'log', 'aria-live': 'polite' });
     const input = el('input', { type: 'text', maxlength: '300', placeholder: 'Що ви шукаєте на сайті?', 'aria-label': 'Запитання помічнику', autocomplete: 'off' });
     const send = el('button', { type: 'submit', class: 'hc-btn hc-primary' }, 'Запитати');
-    const box = el('section', { class: 'hc-box', hidden: true, 'aria-label': 'Помічник' },
+    const box = el('section', { class: 'hc-box', hidden: true, tabindex: '-1', 'aria-label': 'Помічник' },
       el('header', {}, el('b', {}, 'Помічник'),
-        el('button', { type: 'button', class: 'hc-btn', title: 'Приклади запитань', 'aria-label': 'Приклади запитань', onclick: () => { showEx = !showEx; paint(); } }, '💡'),
+        el('button', { type: 'button', class: 'hc-btn hc-ico', title: 'Приклади запитань', 'aria-label': 'Приклади запитань', onclick: () => { showEx = !showEx; paint(); } },
+          icon('M9 18h6', 'M10 22h4', 'M15.1 14c.2-1 .7-1.7 1.4-2.5A4.7 4.7 0 0 0 18 8 6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.4 2.5')),
         el('button', { type: 'button', class: 'hc-btn', title: 'Очистити розмову', onclick: () => { messages = []; showEx = false; save(messages); paint(); } }, 'Очистити'),
-        el('button', { type: 'button', class: 'hc-btn', 'aria-label': 'Закрити', onclick: () => toggle(false) }, '✕')),
+        el('button', { type: 'button', class: 'hc-btn hc-ico', title: 'Закрити', 'aria-label': 'Закрити', onclick: () => toggle(false) }, icon('M18 6 6 18', 'M6 6l12 12'))),
       list,
       el('form', { class: 'hc-form', onsubmit: (e) => { e.preventDefault(); ask(input.value); } }, input, send),
       el('p', { class: 'hc-hint' }, 'Помічник підказує, де що знайти на сайті. Не вводьте персональні дані.'));
     const fab = el('button', { type: 'button', class: 'hc-fab', 'aria-expanded': 'false', 'aria-label': 'Помічник: допоможе знайти потрібне на сайті', onclick: () => toggle(!open) }, '? Помічник');
     document.body.append(box, fab);
 
-    function toggle(v) { open = v; box.hidden = !v; fab.hidden = v; fab.setAttribute('aria-expanded', String(v)); if (v) { paint(); input.focus(); } else fab.focus(); }
+    // back: closed by the browser's Back button, its history entry is already gone
+    function toggle(v, back) {
+      if (v === open) return;
+      open = v; box.hidden = !v; fab.hidden = v; fab.setAttribute('aria-expanded', String(v));
+      document.documentElement.classList.toggle('hc-open', v);
+      if (v && phone.matches) { history.pushState({ helpChat: true }, ''); pushed = true; }
+      if (!v && pushed) { pushed = false; if (!back) history.back(); }
+      fit();
+      if (v) { paint(); if (touch.matches) box.focus({ preventScroll: true }); else input.focus(); } else fab.focus({ preventScroll: true });
+    }
+    // the on-screen keyboard covers the bottom of the screen without resizing the page: keep the full-screen chat inside the part still visible
+    function fit() {
+      if (open && phone.matches && vv) { box.style.setProperty('--hc-top', `${vv.offsetTop}px`); box.style.setProperty('--hc-h', `${vv.height}px`); }
+      else { box.style.removeProperty('--hc-top'); box.style.removeProperty('--hc-h'); }
+    }
+    vv?.addEventListener('resize', fit); vv?.addEventListener('scroll', fit);
+    addEventListener('popstate', () => { if (pushed) toggle(false, true); });
+    // a link in the chat: drop the chat's history entry first, so Back from the next page does not land on this page twice
+    box.addEventListener('click', (e) => {
+      const a = e.target.closest('a[href]');
+      if (!a || !pushed || e.defaultPrevented || e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || a.target === '_blank') return;
+      e.preventDefault(); pushed = false;
+      addEventListener('popstate', () => location.assign(a.href), { once: true });
+      history.back();
+    });
     const link = (href, text, primary) => el('a', { class: `hc-link${primary ? ' hc-primary' : ''}`, href: safe(href) }, text);
     const card = (it, main) => el('div', { class: `hc-card${main ? ' main' : ''}` }, el('b', {}, it.title), it.path && it.path !== it.title ? el('p', {}, it.path) : null, link(it.href, 'Перейти →', main));
     const docCard = (d) => el('div', { class: 'hc-card' }, el('b', {}, d.title), el('p', {}, d.hint), link(d.href, d.href.startsWith('/uploads/') ? 'Відкрити документ →' : 'Відкрити →', true));

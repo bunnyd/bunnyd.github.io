@@ -681,5 +681,66 @@ h1, h2, h3, h4, .b-heading, .eyebrow, .crumbs { overflow-wrap: break-word; } /* 
 }
 @media (hover: none) { .tile:hover, a.card:hover, .btn:hover { transform: none; } } /* no "lifted" hover state stuck after a tap */
 
+/* ---- phones: tighter rhythm in the page content, footer that is shorter to scroll and easier to tap ---- */
+@media (max-width: 640px) {
+  /* content: less empty space between blocks, headings sized for a narrow column */
+  .page-head h1 { font-size: clamp(1.6rem, 7.4vw, 2rem); }
+  .crumbs { margin-bottom: 12px; }
+  .crumbs a { display: inline-block; padding: 9px 0; margin: -9px 0; } /* a finger-sized target without moving the line */
+  .page-wrap { padding-bottom: 56px; }
+  .page-wrap .sec { padding: 18px 0; }
+  .b-heading { margin-top: 22px; font-size: 1.4rem; }
+  h3.b-heading { font-size: 1.2rem; } h4.b-heading { font-size: 1.08rem; }
+  .prose { font-size: 1rem; }
+  .prose blockquote { padding: .1em .9em; }
+  .prose table.grid { font-size: .92rem; }
+  .prose td, .prose th { padding: 7px 9px; }
+  .subnav { margin-bottom: 24px; }
+  .subnav a { border-radius: 12px; line-height: 1.35; } /* a pill that wraps onto two lines turns into a soft card, not a blob */
+  .subnav .eyebrow a.subnav-up { display: inline-block; padding: 8px 0; margin: -8px 0; }
+  .tagbar .tag-all { display: inline-block; padding: 8px 0; }
+  .article-tags a { padding: 7px 13px; }
+  .split-media { margin-right: 10px; }
+  .split-media::after { transform: translate(10px, 10px); }
+  .sec-split .split { gap: 30px; }
+
+  /* footer: two columns of quick links instead of one long list, contacts as tap targets */
+  .foot-grid { gap: 28px; padding-top: 40px; padding-bottom: 28px; }
+  .foot-brand b { font-size: 1.12rem; }
+  .foot .flinks { columns: 2; column-gap: 16px; }
+  .foot .flinks .flink { display: block; padding: 8px 0; line-height: 1.35; }
+  .foot address p { margin: 0 0 2px; }
+  .foot address p:first-child { margin-bottom: 6px; }
+  .foot address a { display: inline-block; padding: 8px 0; }
+  .social { margin-top: 16px; }
+  .soc { width: 44px; height: 44px; }
+  .foot-partners { margin-top: 0; padding-top: 24px; }
+  .foot-partners .partners { gap: 16px 12px; }
+  .foot-partners .partners li { flex-basis: calc(50% - 6px); max-width: none; }
+  .foot-partners .p-logo { height: 50px; }
+  .foot-partners .p-logo img { height: 38px; }
+  .foot-copy { padding-top: 16px; line-height: 1.5; }
+}
+
+/* ---- section styles chosen in the editor: a background band, less or more space (render.js bandsHtml; .blk.bg-* / .blk.sp-* in the editor) ---- */
+.band, .blk.bg-tint, .blk.bg-navy { padding: 28px 32px; border-radius: 12px; }
+.band { display: flex; flex-direction: column; gap: 14px; }
+.band-tint, .blk.bg-tint { background: var(--tint); }
+.band-navy, .blk.bg-navy { background: var(--navy); color: #fff; }
+:is(.band-navy, .blk.bg-navy) :is(h2, h3, h4, .b-heading, .sec-title) { color: #fff; }
+:is(.band-navy, .blk.bg-navy) :is(.prose, .prose-plain) a, :is(.band-navy, .blk.bg-navy) .kicker { color: var(--yellow); }
+:is(.band-navy, .blk.bg-navy) .prose blockquote { color: #cbd5f2; }
+:is(.band, .blk.bg-tint, .blk.bg-navy) .sec-split { background: none; }
+/* in the editor, neighbours with the same background look like the one band the site will show */
+.blk.bg-tint + .blk.bg-tint, .blk.bg-navy + .blk.bg-navy { margin-top: -14px; padding-top: 14px; border-top-left-radius: 0; border-top-right-radius: 0; }
+.blk.bg-tint:has(+ .blk.bg-tint), .blk.bg-navy:has(+ .blk.bg-navy) { padding-bottom: 14px; border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+.sp-compact { margin-block: -7px; }
+.sp-large { margin-block: 22px; }
+/* the home page's blocks are full-width sections: their band runs from edge to edge */
+.home .band, .home .blk.bg-tint, .home .blk.bg-navy { padding: 0; border-radius: 0; }
+.home .band { gap: 0; }
+html[data-contrast="high"] :is(.band, .blk.bg-tint, .blk.bg-navy) { background: #000; color: #fff; border: 2px solid #fff; }
+@media (max-width: 640px) { .band, .blk.bg-tint, .blk.bg-navy { padding: 20px 16px; border-radius: 8px; } .home .band, .home .blk.bg-tint, .home .blk.bg-navy { padding: 0; border-radius: 0; } }
+
 /* safety net: the page itself never gets wider than the screen */
 html, body { max-width: 100%; overflow-x: clip; }
